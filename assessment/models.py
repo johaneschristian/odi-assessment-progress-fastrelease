@@ -26,6 +26,9 @@ class AssessmentTool(PolymorphicModel):
             'description': self.description
         }
 
+    def get_tool_type(self) -> str:
+        return str(type(self)).lower()
+
 
 class AssessmentToolSerializer(serializers.ModelSerializer):
     owning_company_id = serializers.ReadOnlyField(source=OWNING_COMPANY_COMPANY_ID)
@@ -201,6 +204,9 @@ class TestFlow(models.Model):
         test_flow_tools = TestFlowTool.objects.filter(test_flow=self)
         return [test_flow_tool.get_release_time_and_assessment_data() for test_flow_tool in test_flow_tools]
 
+    def get_tools(self):
+        return self.tools.all()
+
 
 class TestFlowTool(models.Model):
     assessment_tool = models.ForeignKey('assessment.AssessmentTool', on_delete=models.CASCADE)
@@ -328,7 +334,7 @@ class AssessmentEvent(models.Model):
         return self.start_date_time <= datetime.datetime.now(datetime.timezone.utc)
 
     def get_released_assignments(self):
-        test_flow_tools = self.test_flow_used.testflowtool_set.all()
+        test_flow_tools = self.get_tools_of_used_test_flow()
         released_assignments_data = []
         for test_flow_tool in test_flow_tools:
             tool_used = test_flow_tool.assessment_tool
@@ -351,6 +357,12 @@ class AssessmentEvent(models.Model):
             raise AssessmentToolDoesNotExist(
                 f'Tool with id {assessment_id} associated with event with id {self.event_id} is not found'
             )
+
+    def get_tools_of_used_test_flow(self):
+        return self.test_flow_used.get_tools()
+
+    def check_if_tool_is_submittable(self, assessment_tool):
+        pass
 
 
 class AssessmentEventSerializer(serializers.ModelSerializer):
@@ -391,6 +403,20 @@ class ResponseTestSerializer(serializers.ModelSerializer):
             'owning_company_id',
             'owning_company_name',
         ]
+
+
+class PolymorphicAssessmentToolSerializer:
+    def __init__(self, instance):
+        self.instance = instance
+        self.data = self.get_serializer().data
+
+    def get_serializer(self):
+        if isinstance(self.instance, Assignment):
+            return AssignmentSerializer(self.instance)
+        if isinstance(self.instance, InteractiveQuiz):
+            return InteractiveQuizSerializer(self.instance)
+        if isinstance(self.instance, ResponseTest):
+            return ResponseTestSerializer(self.instance)
 
 
 class VideoConferenceRoom(models.Model):
@@ -479,6 +505,42 @@ class AssessmentEventParticipation(models.Model):
             assessment_tool_attempted=assignment
         )
         return assignment_attempt
+
+    def get_all_assessment_tool_attempts(self):
+        return self.attempt.toolattempt_set.all()
+
+    def get_assessment_tool_attempt(self, assessment_tool: AssessmentTool):
+        tool_attempts = self.get_all_assessment_tool_attempts()
+        matching_tool_attempts = tool_attempts.filter(assessment_tool_attempted=assessment_tool)
+
+        if matching_tool_attempts:
+            return matching_tool_attempts[0]
+
+        else:
+            return None
+
+    def get_assessment_tool_attempt_id(self, assessment_tool):
+        found_attempt = self.get_assessment_tool_attempt(assessment_tool)
+        if found_attempt:
+            attempt_id = found_attempt.attempt_id
+        else:
+            attempt_id = None
+
+        return attempt_id
+
+    def get_attempt_to_test_flow_tools(self):
+        test_flow_tools = self.assessment_event.get_tools_of_used_test_flow()
+
+        attempt_of_flow = []
+        for test_flow_tool in test_flow_tools:
+            tool_and_attempt_data = {
+                'tool-data': PolymorphicAssessmentToolSerializer(test_flow_tool).data,
+                'attempt-id': self.get_assessment_tool_attempt_id(test_flow_tool),
+                'type': test_flow_tool.get_tool_type()
+            }
+            attempt_of_flow.append(tool_and_attempt_data)
+
+        return attempt_of_flow
 
 
 class AssessmentEventParticipationSerializer(serializers.ModelSerializer):
