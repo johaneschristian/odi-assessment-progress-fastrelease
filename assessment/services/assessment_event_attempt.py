@@ -4,7 +4,7 @@ from one_day_intern.exceptions import RestrictedAccessException, InvalidRequestE
 from one_day_intern.settings import GOOGLE_BUCKET_BASE_DIRECTORY, GOOGLE_STORAGE_BUCKET_NAME
 from users.models import Assessee, Assessor
 from ..exceptions.exceptions import EventDoesNotExist, AssessmentToolDoesNotExist
-from ..models import AssessmentEvent, AssignmentAttempt, Assignment
+from ..models import AssessmentEvent, AssignmentAttempt, Assignment, AssessmentTool
 from .TaskGenerator import TaskGenerator
 from . import utils, google_storage
 import mimetypes
@@ -43,16 +43,14 @@ def get_all_active_assignment(request_data: dict, user: User):
         raise InvalidRequestException(str(exception))
 
 
-def verify_assessee_participation(request_data, user: User):
-    assessee = utils.get_assessee_from_user(user)
-
+def get_assessment_event_data(request_data, user: User):
     try:
-        assessment_event = utils.get_assessment_event_from_id(request_data.get('assessment-event-id'))
+        event = utils.get_active_assessment_event_from_id(request_data.get('assessment-event-id'))
+        assessee = utils.get_assessee_from_user(user)
+        validate_user_participation(event, assessee)
+        return event
     except EventDoesNotExist as exception:
         raise InvalidRequestException(str(exception))
-
-    if not assessment_event.check_assessee_participation(assessee):
-        raise RestrictedAccessException(ASSESEE_NOT_PART_OF_EVENT.format(assessee.email, assessment_event.event_id))
 
 
 def get_or_create_assignment_attempt(event: AssessmentEvent, assignment: Assignment, assessee: Assessee):
@@ -63,6 +61,11 @@ def get_or_create_assignment_attempt(event: AssessmentEvent, assignment: Assignm
         return found_attempt
     else:
         return assessee_participation.create_assignment_attempt(assignment)
+
+
+def validate_attempt_is_submittable(assessment_tool: AssessmentTool, event: AssessmentEvent):
+    if not event.check_if_tool_is_submittable(assessment_tool):
+        raise InvalidRequestException('Assessment is not accepting submissions at this time')
 
 
 def validate_submission(assessment_tool, file_name):
@@ -108,6 +111,7 @@ def submit_assignment(request_data, file, user):
         assessment_tool = \
             event.get_assessment_tool_from_assessment_id(assessment_id=request_data.get('assessment-tool-id'))
         validate_submission(assessment_tool, file.name)
+        validate_attempt_is_submittable(assessment_tool, event)
         save_assignment_attempt(event, assessment_tool, assessee, file)
 
     except (AssessmentToolDoesNotExist, EventDoesNotExist, ValidationError) as exception:
