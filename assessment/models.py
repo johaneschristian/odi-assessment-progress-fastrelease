@@ -3,7 +3,7 @@ from one_day_intern import settings
 from rest_framework import serializers
 from polymorphic.models import PolymorphicModel
 from typing import List, Optional
-from users.models import Assessor, AssessorSerializer
+from users.models import Assessor, AssessorSerializer, Assessee
 from .services.TaskGenerator import TaskGenerator
 from .exceptions.exceptions import AssessmentToolDoesNotExist
 import datetime
@@ -261,6 +261,9 @@ class TestFlow(models.Model):
         elif isinstance(assessment_tool, ResponseTest):
             return True
 
+    def get_test_flow_tools(self):
+        return self.testflowtool_set.all()
+
 
 class TestFlowTool(models.Model):
     assessment_tool = models.ForeignKey('assessment.AssessmentTool', on_delete=models.CASCADE)
@@ -318,6 +321,16 @@ class TestFlowTool(models.Model):
             minute=self.release_time.minute
         )
         return release_time.isoformat()
+
+    def get_iso_start_working_time_on_event_date(self, execution_date):
+        start_working_time = datetime.datetime(
+            year=execution_date.year,
+            month=execution_date.month,
+            day=execution_date.day,
+            hour=self.start_working_time.hour,
+            minute=self.start_working_time.minute
+        )
+        return start_working_time.isoformat()
 
 
 class TestFlowToolSerializer(serializers.ModelSerializer):
@@ -437,6 +450,13 @@ class AssessmentEvent(models.Model):
     def check_if_tool_is_submittable(self, assessment_tool):
         return self.test_flow_used.check_if_is_submittable(assessment_tool, event_date=self.start_date_time.date())
 
+    def get_test_flow_tools(self):
+        return self.test_flow_used.get_test_flow_tools()
+
+    def get_assessee_progress_on_event(self, assessee: Assessee):
+        event_participation = self.get_assessment_event_participation_by_assessee(assessee)
+        return event_participation.get_event_progress()
+
 
 class AssessmentEventSerializer(serializers.ModelSerializer):
     owning_company_id = serializers.ReadOnlyField(source=OWNING_COMPANY_COMPANY_ID)
@@ -485,6 +505,20 @@ class ResponseTestSerializer(serializers.ModelSerializer):
             'owning_company_id',
             'owning_company_name',
         ]
+
+
+class PolymorphicAssessmentToolSerializer:
+    def __init__(self, assessment_tool):
+        self.assessment_tool = assessment_tool
+        self.data = self.get_data()
+
+    def get_data(self):
+        if isinstance(self.assessment_tool, Assignment):
+            return AssignmentSerializer(self.assessment_tool).data
+        elif isinstance(self.assessment_tool, InteractiveQuiz):
+            return InteractiveQuizSerializer(self.assessment_tool).data
+        else:
+            return ResponseTestSerializer(self.assessment_tool).data
 
 
 class VideoConferenceRoom(models.Model):
@@ -573,6 +607,40 @@ class AssessmentEventParticipation(models.Model):
             assessment_tool_attempted=assignment
         )
         return assignment_attempt
+
+    def get_all_assessment_tool_attempts(self):
+        return self.attempt.toolattempt_set.all()
+
+    def get_assessment_tool_attempt(self, assessment_tool: AssessmentTool) -> Optional[ToolAttempt]:
+        tool_attempts = self.get_all_assessment_tool_attempts()
+        matching_tool_attempts = tool_attempts.filter(assessment_tool_attempted=assessment_tool)
+
+        if matching_tool_attempts:
+            return matching_tool_attempts[0]
+        else:
+            return None
+
+    def get_event_progress(self):
+        event_tools: List[TestFlowTool] = self.assessment_event.get_test_flow_tools()
+        progress_data = []
+        for event_tool in event_tools:
+            assessment_tool = event_tool.assessment_tool
+            attempt = self.get_assessment_tool_attempt(assessment_tool)
+
+            if attempt:
+                attempt_id = attempt.tool_attempt_id
+            else:
+                attempt_id = None
+
+            tool_progress_data = {
+                'start_working_time':
+                    event_tool.get_iso_start_working_time_on_event_date(self.assessment_event.start_date_time),
+                'tool-data': PolymorphicAssessmentToolSerializer(assessment_tool).data,
+                'attempt-id': attempt_id
+            }
+            progress_data.append(tool_progress_data)
+
+        return progress_data
 
 
 class AssessmentEventParticipationSerializer(serializers.ModelSerializer):

@@ -1,10 +1,13 @@
 from django.contrib.auth.models import AnonymousUser
+from django.core.exceptions import ObjectDoesNotExist
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.exceptions import InvalidToken
 from datetime import datetime
 from typing import Optional, Match
 import phonenumbers
 import re
+
+from users.models import Assessor
 
 DATETIME_FORMAT = '%Y-%m-%d'
 email_regex = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
@@ -79,4 +82,11 @@ def get_user_from_request(request):
         return user
     except InvalidToken:
         return AnonymousUser()
+
+
+def get_assessor_from_user(user):
+    try:
+        return Assessor.objects.get(email=user.email)
+    except ObjectDoesNotExist:
+        raise ObjectDoesNotExist(f'Assessor with email {user.email} not found')
 
