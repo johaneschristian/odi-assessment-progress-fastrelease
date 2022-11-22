@@ -1,6 +1,6 @@
 import json
 
-from django.views.decorators.http import require_GET
+from django.views.decorators.http import require_GET, require_POST
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.decorators import api_view, permission_classes

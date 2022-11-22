@@ -397,6 +397,14 @@ class AssessmentEvent(models.Model):
         )
         return found_assessors.exists()
 
+    def check_assessee_and_assessor_pair(self, assessee, assessor):
+        found_pairs = AssessmentEventParticipation.objects.filter(
+            assessment_event=self,
+            assessee=assessee,
+            assessor=assessor
+        )
+        return found_pairs.exists()
+
     def get_task_generator(self):
         task_generator = TaskGenerator()
         test_flow = self.test_flow_used
@@ -554,8 +562,23 @@ class VideoConferenceRoomSerializer(serializers.ModelSerializer):
 class ToolAttempt(PolymorphicModel):
     tool_attempt_id = models.UUIDField(default=uuid.uuid4, primary_key=True)
     grade = models.FloatField(default=0)
+    note = models.TextField(null=True)
     test_flow_attempt = models.ForeignKey('assessment.TestFlowAttempt', on_delete=models.CASCADE)
     assessment_tool_attempted = models.ForeignKey('assessment.AssessmentTool', on_delete=models.CASCADE, default=None)
+
+    def get_user_of_attempt(self):
+        return self.test_flow_attempt.event_participation.assessee
+
+    def get_event_of_attempt(self):
+        return self.test_flow_attempt.event_participation.assessment_event
+
+    def set_grade(self, grade):
+        self.grade = grade
+        self.save()
+
+    def set_note(self, note):
+        self.note = note
+        self.save()
 
 
 class AssignmentAttempt(ToolAttempt):
@@ -662,10 +685,7 @@ class TestFlowAttemptSerializer(serializers.ModelSerializer):
         fields = ['attempt_id', 'note', 'grade', 'event_participation', 'test_flow_attempted_id']
 
 
-class TestFlowAttemptSerializer(serializers.ModelSerializer):
-    event_participation = AssessmentEventParticipationSerializer(source='assessmenteventparticipation', read_only=True)
-    test_flow_attempted_id = serializers.ReadOnlyField(source='test_flow_attempted.test_flow_attempted_id')
-
+class AssignmentAttemptSerializer(serializers.ModelSerializer):
     class Meta:
-        model = TestFlowAttempt
-        fields = ['attempt_id', 'note', 'grade', 'event_participation', 'test_flow_attempted_id']
+        model = AssignmentAttempt
+        fields = ['submitted_time', 'filename', 'grade', 'note']

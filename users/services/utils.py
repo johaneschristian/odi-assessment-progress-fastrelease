@@ -7,6 +7,7 @@ from typing import Optional, Match
 import phonenumbers
 import re
 
+from one_day_intern.exceptions import RestrictedAccessException
 from users.models import Assessor
 
 DATETIME_FORMAT = '%Y-%m-%d'
@@ -88,5 +89,5 @@ def get_assessor_from_user(user):
     try:
         return Assessor.objects.get(email=user.email)
     except ObjectDoesNotExist:
-        raise ObjectDoesNotExist(f'Assessor with email {user.email} not found')
+        raise RestrictedAccessException(f'Assessor with email {user.email} not found')
 
